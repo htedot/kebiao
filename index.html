@@ -151,7 +151,8 @@ var KEY='kebiao.v1';
 var TRACK={
   kaoyan:{name:'考研',color:'#2d6cdf'},
   cet:   {name:'六级',color:'#e47d31'},
-  money: {name:'赚钱',color:'#289a6a'}
+  money: {name:'变现',color:'#289a6a'},
+  meta:  {name:'复盘',color:'#8b98a8'}
 };
 var DOW=['一','二','三','四','五','六','日'];
 var H0=8, H1=23, HH=46;   /* 课表显示 8:00–23:00，每小时 46px */
@@ -160,13 +161,31 @@ var H0=8, H1=23, HH=46;   /* 课表显示 8:00–23:00，每小时 46px */
 function uid(){ return Math.random().toString(36).slice(2,9); }
 function seed(){
   var s=[
-    ['单词','cet',[1,2,4,6],'09:30','10:00','背新词 40 个 + 复现昨天错词'],
-    ['数学','kaoyan',[1,2,4,6],'10:00','12:00','高数一轮跟课 + 课后题，2 小时不断电'],
-    ['六级','cet',[3],'20:00','21:00','听力 1 套 + 精听复盘'],
-    ['赚钱','money',[3],'21:00','22:00','只做验证动作，1 小时封顶'],
-    ['六级','cet',[5],'20:30','21:30','阅读 2 篇 + 长难句 3 句'],
-    ['六级','cet',[7],'10:00','11:30','整套计时 1 次'],
-    ['赚钱','money',[7],'14:00','18:00','4 小时整块，出 1 个可交付物']
+    /* 每天固定：背单词 21:00–21:40（用户 2026-11-11 定的） */
+    ['单词 · 六级','cet',[1,2,3,4,5,6,7],'21:00','21:40','每天同一件：新词 40 个 + 昨天错词复现'],
+
+    /* 数学：一三五下午 1.5h，二四六上午 2h 整块 */
+    ['数学 · 高数一轮','kaoyan',[1,3,5],'15:00','16:30','跟课 1 节 + 课后题 10 道，手机反面朝上'],
+    ['数学 · 高数一轮','kaoyan',[2,4,6],'09:30','11:30','2 小时整块：复习昨天 → 新内容 → 20 道限时题'],
+
+    /* 817：二四下午读教材，周六晚做课后题 */
+    ['817 · 教材第一遍','kaoyan',[2,4],'14:30','16:00','《工程材料科学与设计》1 章：读 + 手写知识树，不抄书'],
+    ['817 · 课后题','kaoyan',[6],'19:00','20:00','挑 10 道课后题，不会的标红、先不问人'],
+
+    /* 六级：按技能分开，冲刺期占大头 */
+    ['六级 · 听力','cet',[1,4],'19:00','20:30','1 套真题精听：做题 → 对答案 → 跟读 15 分钟'],
+    ['六级 · 阅读','cet',[2],'19:00','20:30','2 篇真题 + 3 句长难句拆解'],
+    ['六级 · 写译','cet',[3],'19:00','20:00','翻译 1 段；双周加 1 篇作文'],
+    ['六级 · 阅读','cet',[5],'19:00','20:00','2 篇真题 + 错题归因（错在词 / 句 / 逻辑）'],
+    ['六级 · 整套计时','cet',[6],'14:30','16:30','整套真题卡时间，做完只对答案，复盘留到周日'],
+
+    /* 变现：不写"赚钱"，直接写当天要交的那件事 */
+    ['变现 · 题库改版','money',[3],'20:10','21:00','把已上线的背题程序改成能卖的样子，只改 1 处'],
+    ['变现 · 交 1 个东西','money',[7],'10:00','11:00','手上的单或工具：今天必须发出/交出一样'],
+    ['变现 · 整块推进','money',[7],'14:00','17:00','3 小时只做一件事：发布、找客户、或改产品'],
+
+    /* 复盘 */
+    ['周复盘','meta',[7],'20:00','20:30','看本周打卡 → 定下周唯一必做']
   ];
   return s.map(function(x){
     return {id:uid(),title:x[0],track:x[1],days:x[2],start:x[3],end:x[4],note:x[5]};
@@ -180,12 +199,14 @@ function load(){
     if(raw){
       var d=JSON.parse(raw);
       if(d && d.blocks && d.blocks.length){
-        d.checkins=d.checkins||{}; d.settings=d.settings||{};
+        d.checkins=d.checkins||{}; d.settings=d.settings||{notify:true,lead:0,sound:true};
+        /* v1 → v2：课表换成按科目/按动作排的那版（打卡记录保留） */
+        if(!d.version || d.version<2){ d.blocks=seed(); d.version=2; }
         return d;
       }
     }
   }catch(e){}
-  return {version:1, blocks:seed(), checkins:{}, settings:{notify:true,lead:0,sound:true}};
+  return {version:2, blocks:seed(), checkins:{}, settings:{notify:true,lead:0,sound:true}};
 }
 function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){ toast('存储失败，可能空间满了'); } }
 
@@ -269,9 +290,37 @@ function viewToday(){
     html+='</div>';
   }
   var done=list.filter(function(b){ return isDone(d,b); }).length;
-  html+='<div class="hint">今日完成 '+done+'/'+list.length+
-        '　·　门票色：<span style="color:#2d6cdf">考研</span> / <span style="color:#e47d31">六级</span> / <span style="color:#289a6a">赚钱</span></div>';
+  var wp=weekPlan(), rows='';
+  Object.keys(TRACK).forEach(function(k){
+    if(!wp[k].plan) return;
+    rows+='<div class="row"><div class="k"><span style="display:inline-block;width:8px;height:8px;'+
+      'border-radius:99px;background:'+TRACK[k].color+';margin-right:8px"></span>'+TRACK[k].name+
+      '</div><div class="v">'+(wp[k].done?(wp[k].done/60).toFixed(1)+' / ':'')+(wp[k].plan/60).toFixed(1)+' h</div></div>';
+  });
+  html+='<div class="h2">本周投入</div><div class="card">'+rows+
+        '<div class="hint" style="margin-top:6px">斜杠左边是已经打卡的小时数。现在这个阶段只排了数学 / 817 / 六级 / 变现——政治 9 月才开，英语二和六级共用一条跑道。</div></div>';
+  var lg=Object.keys(TRACK).map(function(k){
+    return '<span style="color:'+TRACK[k].color+'">'+TRACK[k].name+'</span>';
+  }).join(' / ');
+  html+='<div class="hint">今日完成 '+done+'/'+list.length+'　·　颜色：'+lg+'</div>';
   return html;
+}
+
+/* 当前这一周（周一到周日）各条线的计划分钟数 / 已打卡分钟数 */
+function weekPlan(){
+  var d=new Date(), mon=new Date(d);
+  mon.setDate(mon.getDate()-(dow(d)-1));
+  var res={};
+  Object.keys(TRACK).forEach(function(k){ res[k]={plan:0,done:0}; });
+  for(var i=0;i<7;i++){
+    var dd=new Date(mon); dd.setDate(dd.getDate()+i);
+    blocksOn(dd).forEach(function(b){
+      var m=toMin(b.end)-toMin(b.start);
+      res[b.track].plan+=m;
+      if(isDone(dd,b)) res[b.track].done+=m;
+    });
+  }
+  return res;
 }
 
 function viewWeek(){
@@ -317,7 +366,8 @@ function viewStats(){
     var l=blocksOn(dd); total+=l.length;
     week+=l.filter(function(b){ return isDone(dd,b); }).length;
   }
-  var counts={kaoyan:0,cet:0,money:0};
+  var counts={};
+  Object.keys(TRACK).forEach(function(k){ counts[k]=0; });
   Object.keys(S.checkins).forEach(function(k){
     var id=k.split('|')[1];
     var b=S.blocks.filter(function(x){ return x.id===id; })[0];
